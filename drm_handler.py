@@ -271,33 +271,50 @@ async def drm_handler(bot: Client, m: Message):
             if "acecwply" in url:
                 cmd = f'yt-dlp -o "{name}.%(ext)s" -f "bestvideo[height<={raw_text2}]+bestaudio" --hls-prefer-ffmpeg --no-keep-video --remux-video mkv --no-warning "{url}"'
          
-            elif "https://cpvod.testbook.com/" in url or "classplusapp.com/drm/" in url:
-                url = url.replace("https://cpvod.testbook.com/","https://media-cdn.classplusapp.com/drm/")
-                url = f"https://covercel.vercel.app/extract_keys?url={url}@bots_updatee&user_id={user_id}"
-                mpd, keys = helper.get_mps_and_keys(url)
-                url = mpd
-                keys_string = " ".join([f"--key {key}" for key in keys])
+            elif any(x in url for x in ["https://cpvod.testbook.com/", "classplusapp.com/drm/", "media-cdn.classplusapp.com", "media-cdn-alisg.classplusapp.com", "media-cdn-a.classplusapp.com", "tencdn.classplusapp", "videos.classplusapp", "webvideos.classplusapp.com"]):
+                # normalize cpvod -> media-cdn path used by API
+                url_norm = url.replace("https://cpvod.testbook.com/", "https://media-cdn.classplusapp.com/drm/")
+                api_url_call = f"https://cp-api-v5.onrender.com/Saini_bots?url={urllib.parse.quote_plus(url_norm)}@Saini_bots&user_id={user_id}"
+                keys_string = ""
+                mpd = None
+                try:
+                    resp = requests.get(api_url_call, timeout=30)
+                    # parse JSON safely
+                    try:
+                        data = resp.json()
+                    except Exception:
+                        data = None
 
-            elif "classplusapp" in url:
-                signed_api = f"https://covercel.vercel.app/extract_keys?url={url}@bots_updatee&user_id={user_id}"
-                response = requests.get(signed_api, timeout=20)
-                url = response.text.strip()
-                url = response.json()['url']  
-                
-            elif "tencdn.classplusapp" in url:
-                headers = {'host': 'api.classplusapp.com', 'x-access-token': f'{cptoken}', 'accept-language': 'EN', 'api-version': '18', 'app-version': '1.4.73.2', 'build-number': '35', 'connection': 'Keep-Alive', 'content-type': 'application/json', 'device-details': 'Xiaomi_Redmi 7_SDK-32', 'device-id': 'c28d3cb16bbdac01', 'region': 'IN', 'user-agent': 'Mobile-Android', 'webengage-luid': '00000187-6fe4-5d41-a530-26186858be4c', 'accept-encoding': 'gzip'}
-                params = {"url": f"{url}"}
-                response = requests.get('https://api.classplusapp.com/cams/uploader/video/jw-signed-url', headers=headers, params=params)
-                url = response.json()['url']  
-           
-            elif 'videos.classplusapp' in url:
-                url = requests.get(f'https://api.classplusapp.com/cams/uploader/video/jw-signed-url?url={url}', headers={'x-access-token': f'{cptoken}'}).json()['url']
-            
-            elif 'media-cdn.classplusapp.com' in url or 'media-cdn-alisg.classplusapp.com' in url or 'media-cdn-a.classplusapp.com' in url: 
-                headers = {'host': 'api.classplusapp.com', 'x-access-token': f'{cptoken}', 'accept-language': 'EN', 'api-version': '18', 'app-version': '1.4.73.2', 'build-number': '35', 'connection': 'Keep-Alive', 'content-type': 'application/json', 'device-details': 'Xiaomi_Redmi 7_SDK-32', 'device-id': 'c28d3cb16bbdac01', 'region': 'IN', 'user-agent': 'Mobile-Android', 'webengage-luid': '00000187-6fe4-5d41-a530-26186858be4c', 'accept-encoding': 'gzip'}
-                params = {"url": f"{url}"}
-                response = requests.get('https://api.classplusapp.com/cams/uploader/video/jw-signed-url', headers=headers, params=params)
-                url   = response.json()['url']
+                    # DRM response (MPD + KEYS)
+                    if isinstance(data, dict) and "KEYS" in data and "MPD" in data:
+                        mpd = data.get("MPD")
+                        keys = data.get("KEYS", [])
+                        url = mpd
+                        keys_string = " ".join([f"--key {k}" for k in keys])
+
+                    # Non-DRM response (direct url)
+                    elif isinstance(data, dict) and "url" in data:
+                        url = data.get("url")
+                        keys_string = ""
+
+                    else:
+                        # Unexpected response format — fallback to helper
+                        try:
+                            cover_api = f"https://covercel.vercel.app/extract_keys?url={url_norm}@bots_updatee&user_id={user_id}"
+                            mpd, keys = helper.get_mps_and_keys(cover_api)
+                            url = mpd
+                            keys_string = " ".join([f"--key {k}" for k in keys])
+                        except Exception:
+                            keys_string = ""
+                except Exception:
+                    # API failed — attempt helper fallback
+                    try:
+                        cover_api = f"https://covercel.vercel.app/extract_keys?url={url_norm}@bots_updatee&user_id={user_id}"
+                        mpd, keys = helper.get_mps_and_keys(cover_api)
+                        url = mpd
+                        keys_string = " ".join([f"--key {k}" for k in keys])
+                    except Exception:
+                        keys_string = ""
 
             if "edge.api.brightcove.com" in url:
                 bcov = f'bcov_auth={cwtoken}'
